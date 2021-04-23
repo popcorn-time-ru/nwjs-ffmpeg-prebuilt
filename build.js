@@ -37,6 +37,7 @@ function execAsync(code, ...a) {
 
 async function setupLinux() {
     await execAsync(`./build/install-build-deps.sh`, `--no-prompt`, `--no-nacl`, `--no-chromeos-fonts`, `--no-syms`);
+    await execAsync(`sudo`, `apt`, `install`, '-y', `lld nasm clang`);
 }
 
 async function setupMac() {
@@ -139,7 +140,26 @@ ${platform === 'arm' ? 'target_cpu=["arm"]' : ''}
         await setupWin();
     }
 
+    if (await fs.pathExists('./third_party/ffmpeg')) {
+        process.chdir('./third_party/ffmpeg');
+        await execAsync('git', 'clean', '-f');
+        await execAsync('git', 'checkout', '-f');
+        process.chdir('../..');
+    }
+
     await execAsync('gclient', 'sync', '--with_branch_heads');
+
+    console.log(`Patch ffmpeg config.`);
+    process.chdir('./third_party/ffmpeg');
+    await execAsync('git', 'clean', '-f');
+    await execAsync('git', 'checkout', '-f');
+    await execAsync('git', 'apply', '--ignore-space-change', '--ignore-whitespace', '../../../../../build_ffmpeg_proprietary_codecs.patch');
+    await execAsync('./chromium/scripts/build_ffmpeg.py', platform, program.arch);
+    await execAsync('./chromium/scripts/copy_config.sh');
+    await execAsync('vpython', './chromium/scripts/generate_gn.py');
+    process.chdir('../..');
+    console.log(`Patch ffmpeg apply.`);
+
     if (program.arch === 'ia32') {
         await execAsync('gn', 'gen', 'out/Default', '--args="chrome_pgo_phase=0 is_debug=false enable_nacl=false is_component_ffmpeg=true proprietary_codecs=true is_official_build=true target_cpu=\\"x86\\" ffmpeg_branding=\\"Chrome\\""');
     } else if (program.arch === 'x64') {
